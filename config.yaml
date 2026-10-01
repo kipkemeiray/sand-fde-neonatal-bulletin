@@ -1,0 +1,115 @@
+# =============================================================================
+# config.yaml — every environment-specific assumption lives here, not in code.
+# Repointing at another country's extract is a config edit, not a code change.
+# =============================================================================
+
+bulletin:
+  title: "Quarterly Neonatal Health Bulletin"
+  ministry: "Ministry of Health"
+  country: "Rwanda"
+  period_label: "2024 · Jan-Nov"
+  top_n_facilities: 10
+  who_sdg_nmr_target: 12        # SDG 3.2: neonatal mortality <=12 per 1,000 live births
+
+sources:
+  clinical:   { path: data/raw/clinical_neonatal.csv }
+  facilities: { path: data/raw/facilities.csv }
+  workers:    { path: data/raw/healthcare_workers.csv }
+  governance: { path: data/raw/governance.csv }
+  operations: { path: data/raw/operations.csv }
+
+# --- CSV parsing --------------------------------------------------------------
+# CRITICAL: "None" is a REAL CATEGORY in night_shift_coverage (63 of 117 facilities
+# have no night cover). pandas' default na_values treats it as missing, which
+# silently deletes the single worst-performing group from every analysis.
+# We therefore disable default NA inference and declare the sentinels explicitly.
+parsing:
+  na_values: ["", "NA", "N/A", "null", "NULL", "NaN", "-"]
+  keep_default_na: false
+  never_sentinels: ["Never"]    # means "has never happened", not "unknown"
+
+# --- deduplication ------------------------------------------------------------
+# The clinical extract contains 234 duplicated (facility, month) rows across
+# 2024-01 and 2024-03 with CONFLICTING values. Left unhandled they inflate every
+# volume figure by ~20%. Rates survive (numerator and denominator inflate together)
+# but "Top 10 facilities by patient volume" - a required bulletin section - does not.
+dedupe:
+  key: [facility_id, reporting_month]
+  strategy: first               # first | last | mean - 'first' pending MoH ruling
+
+# --- ordinal encodings --------------------------------------------------------
+# Capability levels mapped to an ordered scale so they can enter the driver
+# analysis. The ordering is a judgement; it is stated here rather than buried.
+ordinal_maps:
+  presence:      { "No": 0, "Partial": 1, "Yes": 2 }
+  night_cover:   { "None": 0, "Partial": 1, "Full": 2 }
+  protocol:      { "No": 0, "Outdated": 1, "Yes": 2 }
+  availability:  { "Rarely": 0, "Sometimes": 1, "Usually": 2, "Always": 3 }
+
+columns:
+  percent_fields:
+    - death_audits_conducted_pct
+    - staff_trained_on_protocol_pct
+    - hmis_reporting_completeness
+    - bag_mask_ventilation_competency
+    - thermal_care_protocol_compliance
+    - infection_prevention_score
+    - referral_feedback_rate
+  ordinal_fields:
+    nicu_available:             presence
+    kangaroo_care_space:        presence
+    kangaroo_care_practiced:    presence
+    electricity_reliable:       presence
+    backup_generator:           presence
+    oxygen_plant:               presence
+    ambulance_available:        presence
+    surfactant_available:       presence
+    quality_improvement_active: presence
+    night_shift_coverage:       night_cover
+    newborn_protocol_exists:    protocol
+    antibiotics_available:      availability
+
+# --- quality gates ------------------------------------------------------------
+quality:
+  min_live_births_to_rank: 300   # suppress facility NMR below this denominator
+  min_months_reported: 8         # of the 10 distinct months present in the extract
+  outlier_mad_threshold: 5.0
+
+# --- driver analysis ----------------------------------------------------------
+# Tier is the dominant confounder: median NMR runs 14.7 (Referral) to 68.2
+# (District). Any driver correlation not adjusted for tier mostly measures tier.
+drivers:
+  stratify_by: tier_level
+  min_abs_correlation_to_report: 0.05
+  candidates:
+    - neonatal_nurses_per_100_deliveries
+    - incubator_functional_ratio
+    - cpap_machines
+    - radiant_warmers
+    - phototherapy_units
+    - resuscitation_tables
+    - nicu_available_ord
+    - night_shift_coverage_ord
+    - bag_mask_ventilation_competency
+    - thermal_care_protocol_compliance
+    - infection_prevention_score
+    - staff_trained_on_protocol_pct
+    - death_audits_conducted_pct
+    - quality_improvement_active_ord
+    - supervision_visits_quarterly
+    - kangaroo_care_practiced_ord
+    - oxygen_concentrators
+    - oxygen_cylinders_available
+    - antibiotics_available_ord
+    - surfactant_available_ord
+    - essential_drugs_stockouts_days
+    - avg_referral_time_hrs
+    - referral_feedback_rate
+  case_mix:
+    - low_birth_weight_rate
+    - preterm_rate
+    - very_preterm_rate
+
+output:
+  html_path: output/neonatal_bulletin.html
+  csv_dir: output/tables

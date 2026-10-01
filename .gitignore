@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+.venv/
+venv/
+
+# Regenerable intermediate tables. The rendered bulletin IS committed —
+# a reviewer who does not run the pipeline should still see the output.
+output/tables/*.csv
